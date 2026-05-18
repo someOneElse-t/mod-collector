@@ -475,16 +475,14 @@ def collect_all(cfg, sort_mode):
                     if m.get("rating", 0) >= min_rating 
                     or m.get("endorsements", 0) >= min_endorsements]
         
-        # 评分归一化 + 权重轮显机制：
-        # 1) 对评分做 log 归一化，将极端差距压缩到 0-100
+        # 评分线性归一化 + 权重轮显机制：
+        # 1) 线性归一化：评分映射到 (0.5, 1.5)
         # 2) 归一化分 * 权重 → 最终排序分
         # - 新 mod 初始权重 1.0
-        # - 被选中展示后，权重衰减（默认 *0.85）
-        # - 未展示时，每次运行权重恢复（默认 +0.05）
-        # - 权重范围 [0.3, 1.0]
+        # - 被选中展示后，权重衰减（f(x) = 0.82 * x^1.7，最低 0.001）
+        # - 未展示时，权重恢复（默认 +0.05）
+        # - 权重范围 [0.001, 1.0]
         # - 检测到更新时间变化，权重重置为 1.0
-        show_weight_decay = cfg["settings"].get("show_weight_decay", 0.85)
-        show_weight_min = cfg["settings"].get("show_weight_min", 0.3)
         show_weight_restore = cfg["settings"].get("show_weight_restore", 0.05)
         show_weight_max = 1.0
         
@@ -503,77 +501,41 @@ def collect_all(cfg, sort_mode):
             m["_raw_score"] = s
             raw_scores.append(s)
         
-        # Log 归一化：将评分压缩到 0-100
+        # 线性归一化：映射到 (0.5, 1.5)
         if raw_scores:
-            log_scores = [math.log(s + 1) for s in raw_scores]
-            ls_min = min(log_scores)
-            ls_max = max(log_scores)
-            ls_range = ls_max - ls_min
-            if ls_range > 0:
-                for m, ls in zip(filtered, log_scores):
-                    m["_norm_score"] = (ls - ls_min) / ls_range * 100
+            s_min = min(raw_scores)
+            s_max = max(raw_scores)
+            s_range = s_max - s_min
+            if s_range > 0:
+                for m, s in zip(filtered, raw_scores):
+                    m["_norm_score"] = 0.5 + (s - s_min) / s_range * 1.0
             else:
                 for m in filtered:
-                    m["_norm_score"] = 50.0
+                    m["_norm_score"] = 1.0
         
         # 按 归一化分 * weight 排序取前 N
         def weighted_norm_score(m):
             return m.get("_norm_score", 0) * m.get("show_weight", 1.0)
         filtered.sort(key=weighted_norm_score, reverse=True)
-        n_mods = len(filtered)
         n_slots = cfg["settings"].get("mods_per_game", 20)
-        
-        # 分层保障：确保低评分 mod 也有展示机会
-        # 将 mod 分为 高(40%) / 中(30%) / 低(30%) 三档
-        # 按 60% / 25% / 15% 的比例分配展示名额
-        top_end = int(n_mods * 0.4)
-        mid_end = int(n_mods * 0.7)
-        
-        tier_top = filtered[:top_end]
-        tier_mid = filtered[top_end:mid_end]
-        tier_low = filtered[mid_end:]
-        
-        # 各档展示名额（向下取整，剩余的给高分档）
-        n_top_slots = max(int(n_slots * 0.6), 1)
-        n_mid_slots = max(int(n_slots * 0.25), 1)
-        n_low_slots = max(n_slots - n_top_slots - n_mid_slots, 1)
-        
-        # 如果某档 mod 不足，将名额分配给下一档
-        if len(tier_low) < n_low_slots:
-            n_top_slots += n_low_slots - len(tier_low)
-            n_low_slots = len(tier_low)
-        if len(tier_mid) < n_mid_slots:
-            n_top_slots += n_mid_slots - len(tier_mid)
-            n_mid_slots = len(tier_mid)
-        
-        # 每档内按加权分排序
-        # 低分档完全随机选择，确保每个低评分 mod 都有展示机会
-        import random
-        random.seed(hash(f"{game_id}_{run}") & 0xFFFFFFFF)
-        
-        top_mods = []
-        top_mods += sorted(tier_top, key=weighted_norm_score, reverse=True)[:n_top_slots]
-        top_mods += sorted(tier_mid, key=weighted_norm_score, reverse=True)[:n_mid_slots]
-        # 低分档：完全随机选择（不按评分排序）
-        random.shuffle(tier_low)
-        top_mods += tier_low[:n_low_slots]
+        top_mods = filtered[:n_slots]
         
         # 更新 DB 中权重：展示的衰减，未展示的恢复
-        filtered_ids = set(mod_id(m) for m in filtered)
         top_ids = set(mod_id(m) for m in top_mods)
-        for mid in filtered_ids:
+        for m in filtered:
+            mid = mod_id(m)
             if mid not in db["mods"]:
                 continue
             if mid in top_ids:
-                # 被展示：衰减
-                db["mods"][mid]["show_weight"] = max(
-                    db["mods"][mid].get("show_weight", 1.0) * show_weight_decay,
-                    show_weight_min
-                )
+                # 被展示：衰减 f(x) = 0.82 * x^1.7, 最低 0.001
+                old_w = db["mods"][mid].get("show_weight", 1.0)
+                new_w = 0.82 * (old_w ** 1.7)
+                db["mods"][mid]["show_weight"] = max(new_w, 0.001)
             else:
                 # 未展示：恢复
+                old_w = db["mods"][mid].get("show_weight", 1.0)
                 db["mods"][mid]["show_weight"] = min(
-                    db["mods"][mid].get("show_weight", 1.0) + show_weight_restore,
+                    old_w + show_weight_restore,
                     show_weight_max
                 )
         
