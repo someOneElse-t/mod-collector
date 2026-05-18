@@ -7,16 +7,15 @@
 - **Nexus Mods** — 通过 API v1 获取（需 API Key）
 - **Thunderstore** — 通过公共 API 获取
 - **GitHub** — 通过 GitHub Search API 获取
-- **ModDB** — 通过 HTML 解析获取
 
 ## 支持游戏
 
 | 游戏 | 平台 |
 |------|------|
-| 戴森球计划 (Dyson Sphere Program) | Thunderstore, GitHub, ModDB |
-| 异星工场 (Factorio) | GitHub, ModDB |
+| 戴森球计划 (Dyson Sphere Program) | Thunderstore, GitHub |
+| 异星工场 (Factorio) | GitHub |
 | REPO | Thunderstore, GitHub |
-| 星露谷物语 (Stardew Valley) | Nexus Mods, GitHub, ModDB |
+| 星露谷物语 (Stardew Valley) | Nexus Mods, GitHub |
 
 ## 功能
 
