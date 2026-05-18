@@ -4,13 +4,13 @@
       "id": "dysosphere",
       "name_zh": "戴森球计划",
       "name_en": "Dyson Sphere Program",
-      "platforms": ["thunderstore", "github", "moddb"]
+      "platforms": ["thunderstore", "github"]
     },
     {
       "id": "factorio",
       "name_zh": "异星工场",
       "name_en": "Factorio",
-      "platforms": ["github", "moddb"]
+      "platforms": ["github"]
     },
     {
       "id": "repo",
@@ -22,14 +22,13 @@
       "id": "stardew_valley",
       "name_zh": "星露谷物语",
       "name_en": "Stardew Valley",
-      "platforms": ["nexus", "github", "moddb"]
+      "platforms": ["nexus", "github"]
     }
   ],
   "sources": [
     {"id": "nexus", "name": "Nexus Mods", "url": "https://www.nexusmods.com"},
     {"id": "thunderstore", "name": "Thunderstore", "url": "https://www.thunderstore.io"},
-    {"id": "github", "name": "GitHub", "url": "https://github.com"},
-    {"id": "moddb", "name": "ModDB", "url": "https://www.moddb.com"}
+    {"id": "github", "name": "GitHub", "url": "https://github.com"}
   ],
   "settings": {
     "daily_time": "19:00",
@@ -38,9 +37,9 @@
     "mods_per_game": 20,
     "min_rating": 3.0,
     "min_endorsements": 10,
-    "email_to": "YOUR_EMAIL@example.com",
-    "data_dir": "./data",
-    "send_email_script": "python3 /path/to/send.py",
+    "email_to": "2194026554@qq.com",
+    "data_dir": "/home/admin/.openclaw/workspace/scripts/mod-collector/data",
+    "send_email_script": "python3 /home/admin/.config/himalaya/send.py",
     "nexus_api_key": "",
     "github_token": ""
   }
