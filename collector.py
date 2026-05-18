@@ -261,11 +261,11 @@ def fetch_nexus(game_en, sort="endorsements", cfg=None):
                 "description": desc,
                 "rating": float(rating),
                 "endorsements": rating,
-                "downloads": data.get("download_count", 0),
+                "downloads": data.get("mod_downloads", 0),
                 "url": f"https://www.nexusmods.com/{domain}/mods/{mid}",
                 "image": data.get("picture_url", ""),
-                "last_updated": datetime.fromtimestamp(data.get("uploaded_time", 0)).isoformat() if data.get("uploaded_time") else "",
-                "platform": "nexus"
+                "last_updated": datetime.fromtimestamp(data.get("updated_timestamp", 0)).isoformat() if data.get("updated_timestamp") else "",
+                "platform": "nexus",
             })
         time.sleep(0.5)  # 避免限流
     
@@ -559,6 +559,15 @@ body{{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backg
             author = mod.get("author", "")
             desc = mod.get("description", "")[:150]
             url = mod.get("url", "#")
+            last_updated = mod.get("last_updated", "")
+            if last_updated:
+                try:
+                    dt = datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
+                    time_str = dt.strftime("%Y-%m-%d %H:%M")
+                except:
+                    time_str = last_updated[:16]
+            else:
+                time_str = ""
             
             parts.append(f"""
 <div class="mod-item">
@@ -568,6 +577,7 @@ body{{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backg
 <div class="mod-meta">
 <span class="badge" style="background:{color}">{pname}</span>
 {'<span>👤 ' + escape(author) + '</span>' if author else ''}
+{'<span>🕐 ' + escape(time_str) + '</span>' if time_str else ''}
 <span>⭐ {rating}</span>
 <span>📥 {downloads:,}</span>
 </div>
