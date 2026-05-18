@@ -547,21 +547,16 @@ def collect_all(cfg, sort_mode):
             n_mid_slots = len(tier_mid)
         
         # 每档内按加权分排序
-        # 低分档加入随机扰动（±10%），让低评分 mod 有随机展示机会
+        # 低分档完全随机选择，确保每个低评分 mod 都有展示机会
         import random
-        random.seed(hash(f"{game_id}_{run}") & 0xFFFFFFFF)  # 可复现的随机性
-        
-        def tier_sort_key(m, add_noise=False):
-            base = weighted_norm_score(m)
-            if add_noise:
-                noise = random.uniform(-0.1, 0.1)
-                return base * (1 + noise)
-            return base
+        random.seed(hash(f"{game_id}_{run}") & 0xFFFFFFFF)
         
         top_mods = []
-        top_mods += sorted(tier_top, key=lambda m: tier_sort_key(m), reverse=True)[:n_top_slots]
-        top_mods += sorted(tier_mid, key=lambda m: tier_sort_key(m), reverse=True)[:n_mid_slots]
-        top_mods += sorted(tier_low, key=lambda m: tier_sort_key(m, add_noise=True), reverse=True)[:n_low_slots]
+        top_mods += sorted(tier_top, key=weighted_norm_score, reverse=True)[:n_top_slots]
+        top_mods += sorted(tier_mid, key=weighted_norm_score, reverse=True)[:n_mid_slots]
+        # 低分档：完全随机选择（不按评分排序）
+        random.shuffle(tier_low)
+        top_mods += tier_low[:n_low_slots]
         
         # 更新 DB 中权重：展示的衰减，未展示的恢复
         filtered_ids = set(mod_id(m) for m in filtered)
