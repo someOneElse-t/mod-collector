@@ -426,6 +426,13 @@ def collect_all(cfg, sort_mode):
     min_rating = cfg["settings"].get("min_rating", 3.0)
     min_endorsements = cfg["settings"].get("min_endorsements", 10)
     
+    # 获取每游戏的独立配置（覆盖全局默认）
+    def get_game_setting(game, key, default=None):
+        """优先级: 游戏独立配置 > 全局配置 > 默认值"""
+        if key in game:
+            return game[key]
+        return cfg["settings"].get(key, default)
+    
     all_results = {}
     total_added = 0
     total_updated = 0
@@ -471,9 +478,11 @@ def collect_all(cfg, sort_mode):
         has_time_mods = [m for m in game_mods if m.get("last_updated")]
         no_time_count = len(game_mods) - len(has_time_mods)
         
+        game_min_rating = get_game_setting(game, "min_rating", min_rating)
+        game_min_endorsements = get_game_setting(game, "min_endorsements", min_endorsements)
         filtered = [m for m in has_time_mods 
-                    if m.get("rating", 0) >= min_rating 
-                    or m.get("endorsements", 0) >= min_endorsements]
+                    if m.get("rating", 0) >= game_min_rating 
+                    or m.get("endorsements", 0) >= game_min_endorsements]
         
         # 评分线性归一化 + 权重轮显机制：
         # 1) 线性归一化：评分映射到 (0.5, 1.5)
@@ -517,7 +526,7 @@ def collect_all(cfg, sort_mode):
         def weighted_norm_score(m):
             return m.get("_norm_score", 0) * m.get("show_weight", 1.0)
         filtered.sort(key=weighted_norm_score, reverse=True)
-        n_slots = cfg["settings"].get("mods_per_game", 20)
+        n_slots = get_game_setting(game, "mods_per_game", cfg["settings"].get("mods_per_game", 20))
         top_mods = filtered[:n_slots]
         
         # 更新 DB 中权重：展示的衰减，未展示的恢复
