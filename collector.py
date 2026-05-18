@@ -475,24 +475,18 @@ def collect_all(cfg, sort_mode):
                     if m.get("rating", 0) >= min_rating 
                     or m.get("endorsements", 0) >= min_endorsements]
         
-        # 权重排序：score * show_weight，让长期未展示的 mod 有机会
-        show_weight_decay = cfg["settings"].get("show_weight_decay", 0.7)
+        # 权重轮显机制：
+        # - 新 mod 初始权重 1.0
+        # - 被选中展示后，权重衰减（默认 *0.85）
+        # - 未展示时，每次运行权重恢复（默认 +0.05）
+        # - 权重范围 [0.3, 1.0]
+        # - 检测到更新时间变化，权重重置为 1.0
+        show_weight_decay = cfg["settings"].get("show_weight_decay", 0.85)
+        show_weight_min = cfg["settings"].get("show_weight_min", 0.3)
+        show_weight_restore = cfg["settings"].get("show_weight_restore", 0.05)
+        show_weight_max = 1.0
         
-        # 先从 DB 中衰减所有已存在 mod 的权重
-        for mid, mod in db["mods"].items():
-            # 只衰减属于当前游戏的 mod
-            mod_name = mod.get("name", "").lower()
-            mod_author = mod.get("author", "").lower()
-            # 检查是否在当前游戏的结果中
-            in_current = any(
-                m.get("name", "").lower() == mod_name and m.get("author", "").lower() == mod_author
-                for m in filtered
-            )
-            if not in_current:
-                w = mod.get("show_weight", 1.0)
-                mod["show_weight"] = max(w * show_weight_decay, 0.1)
-        
-        # 对在本次结果中的 mod，从 DB 获取最新权重
+        # 为本次候选 mod 赋权重（从 DB 读取或初始化为 1.0）
         for m in filtered:
             mid = mod_id(m)
             if mid in db["mods"]:
@@ -506,12 +500,24 @@ def collect_all(cfg, sort_mode):
         filtered.sort(key=weighted_score, reverse=True)
         top_mods = filtered[:cfg["settings"].get("mods_per_game", 20)]
         
-        # 衰减被选中 mod 的权重
-        for m in top_mods:
-            mid = mod_id(m)
-            if mid in db["mods"]:
-                w = db["mods"][mid].get("show_weight", 1.0)
-                db["mods"][mid]["show_weight"] = max(w * show_weight_decay, 0.1)
+        # 更新 DB 中权重：展示的衰减，未展示的恢复
+        filtered_ids = set(mod_id(m) for m in filtered)
+        top_ids = set(mod_id(m) for m in top_mods)
+        for mid in filtered_ids:
+            if mid not in db["mods"]:
+                continue
+            if mid in top_ids:
+                # 被展示：衰减
+                db["mods"][mid]["show_weight"] = max(
+                    db["mods"][mid].get("show_weight", 1.0) * show_weight_decay,
+                    show_weight_min
+                )
+            else:
+                # 未展示：恢复
+                db["mods"][mid]["show_weight"] = min(
+                    db["mods"][mid].get("show_weight", 1.0) + show_weight_restore,
+                    show_weight_max
+                )
         
         # 合并到数据库
         added, updated = merge_mods(db, top_mods)
