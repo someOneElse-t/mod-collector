@@ -91,25 +91,52 @@ def mod_id(mod):
     raw = f"{mod.get('name','')}|{mod.get('author','')}".lower().strip()
     return hashlib.md5(raw.encode()).hexdigest()[:12]
 
-def merge_mods(db, new_mods):
-    """合并新数据到数据库，按名称+作者去重"""
+def merge_mods(db, new_mods, show_weight_decay=0.7):
+    """合并新数据到数据库，按名称+作者去重。
+    
+    权重机制：
+    - 新 mod 初始权重 = 1.0
+    - 每次被选中展示后，权重衰减（默认 *0.7，最小 0.2）
+    - 检测到更新时间变化时，权重重置为 1.0
+    """
     existing = db["mods"]
     added = 0
     updated = 0
+    updated_ids = set()  # 记录本次更新的 mod IDs
+    
     for m in new_mods:
         mid = mod_id(m)
         m["last_seen"] = datetime.now().isoformat()
+        
         if mid not in existing:
             m["first_seen"] = m["last_seen"]
+            m["show_weight"] = 1.0
             existing[mid] = m
             added += 1
         else:
             old = existing[mid]
-            for k in ("rating", "downloads", "endorsements", "url", "image", "description", "last_updated"):
+            # 检测更新时间是否变化
+            old_time = old.get("last_updated", "")
+            new_time = m.get("last_updated", "")
+            if new_time and new_time != old_time:
+                # Mod 有更新，重置权重
+                old["show_weight"] = 1.0
+                updated_ids.add(mid)
+            
+            for k in ("rating", "downloads", "endorsements", "url", "image", "description", "last_updated", "language", "stars"):
                 if k in m and m[k]:
                     old[k] = m[k]
             old["last_seen"] = m["last_seen"]
+            # 新 mod 初始化权重
+            if "show_weight" not in old:
+                old["show_weight"] = 1.0
             updated += 1
+    
+    # 对所有未被选中展示的 mod 进行权重衰减（防止老 mod 权重过低）
+    for mid, mod in existing.items():
+        if mid not in updated_ids and mid not in [mod_id(m) for m in new_mods]:
+            pass  # 不在本次数据中的 mod 不受影响
+    
     db["mods"] = existing
     return added, updated
 
@@ -440,14 +467,51 @@ def collect_all(cfg, sort_mode):
                 unique_mods.append(m)
         game_mods = unique_mods
         
-        # 过滤低评分
-        filtered = [m for m in game_mods 
+        # 过滤：1) 无更新时间的 mod 不计入统计  2) 低评分过滤
+        has_time_mods = [m for m in game_mods if m.get("last_updated")]
+        no_time_count = len(game_mods) - len(has_time_mods)
+        
+        filtered = [m for m in has_time_mods 
                     if m.get("rating", 0) >= min_rating 
                     or m.get("endorsements", 0) >= min_endorsements]
         
-        # 按评分排序取前 N
-        filtered.sort(key=lambda x: x.get("rating", 0) + x.get("endorsements", 0), reverse=True)
+        # 权重排序：score * show_weight，让长期未展示的 mod 有机会
+        show_weight_decay = cfg["settings"].get("show_weight_decay", 0.7)
+        
+        # 先从 DB 中衰减所有已存在 mod 的权重
+        for mid, mod in db["mods"].items():
+            # 只衰减属于当前游戏的 mod
+            mod_name = mod.get("name", "").lower()
+            mod_author = mod.get("author", "").lower()
+            # 检查是否在当前游戏的结果中
+            in_current = any(
+                m.get("name", "").lower() == mod_name and m.get("author", "").lower() == mod_author
+                for m in filtered
+            )
+            if not in_current:
+                w = mod.get("show_weight", 1.0)
+                mod["show_weight"] = max(w * show_weight_decay, 0.1)
+        
+        # 对在本次结果中的 mod，从 DB 获取最新权重
+        for m in filtered:
+            mid = mod_id(m)
+            if mid in db["mods"]:
+                m["show_weight"] = db["mods"][mid].get("show_weight", 1.0)
+            else:
+                m["show_weight"] = 1.0
+        
+        # 按 score * weight 排序取前 N
+        def weighted_score(m):
+            return (m.get("rating", 0) + m.get("endorsements", 0)) * m.get("show_weight", 1.0)
+        filtered.sort(key=weighted_score, reverse=True)
         top_mods = filtered[:cfg["settings"].get("mods_per_game", 20)]
+        
+        # 衰减被选中 mod 的权重
+        for m in top_mods:
+            mid = mod_id(m)
+            if mid in db["mods"]:
+                w = db["mods"][mid].get("show_weight", 1.0)
+                db["mods"][mid]["show_weight"] = max(w * show_weight_decay, 0.1)
         
         # 合并到数据库
         added, updated = merge_mods(db, top_mods)
@@ -462,7 +526,7 @@ def collect_all(cfg, sort_mode):
             "total_filtered": len(filtered)
         }
         
-        print(f"  -> 过滤后 {len(filtered)} 个，取 TOP {len(top_mods)}，新增 {added}，更新 {updated}")
+        print(f"  -> 过滤后 {len(filtered)} 个（{no_time_count} 无更新时间已排除），取 TOP {len(top_mods)}，新增 {added}，更新 {updated}")
     
     # 更新运行记录
     now = datetime.now().isoformat()
