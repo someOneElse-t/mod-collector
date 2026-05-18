@@ -1,0 +1,47 @@
+{
+  "games": [
+    {
+      "id": "dysosphere",
+      "name_zh": "戴森球计划",
+      "name_en": "Dyson Sphere Program",
+      "platforms": ["thunderstore", "github", "moddb"]
+    },
+    {
+      "id": "factorio",
+      "name_zh": "异星工场",
+      "name_en": "Factorio",
+      "platforms": ["github", "moddb"]
+    },
+    {
+      "id": "repo",
+      "name_zh": "REPO",
+      "name_en": "REPO",
+      "platforms": ["thunderstore", "github"]
+    },
+    {
+      "id": "stardew_valley",
+      "name_zh": "星露谷物语",
+      "name_en": "Stardew Valley",
+      "platforms": ["nexus", "github", "moddb"]
+    }
+  ],
+  "sources": [
+    {"id": "nexus", "name": "Nexus Mods", "url": "https://www.nexusmods.com"},
+    {"id": "thunderstore", "name": "Thunderstore", "url": "https://www.thunderstore.io"},
+    {"id": "github", "name": "GitHub", "url": "https://github.com"},
+    {"id": "moddb", "name": "ModDB", "url": "https://www.moddb.com"}
+  ],
+  "settings": {
+    "daily_time": "19:00",
+    "weekly_time": "19:00",
+    "weekly_day": 0,
+    "mods_per_game": 20,
+    "min_rating": 3.0,
+    "min_endorsements": 10,
+    "email_to": "YOUR_EMAIL@example.com",
+    "data_dir": "./data",
+    "send_email_script": "python3 /path/to/send.py",
+    "nexus_api_key": "",
+    "github_token": ""
+  }
+}
