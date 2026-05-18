@@ -475,7 +475,9 @@ def collect_all(cfg, sort_mode):
                     if m.get("rating", 0) >= min_rating 
                     or m.get("endorsements", 0) >= min_endorsements]
         
-        # 权重轮显机制：
+        # 评分归一化 + 权重轮显机制：
+        # 1) 对评分做 log 归一化，将极端差距压缩到 0-100
+        # 2) 归一化分 * 权重 → 最终排序分
         # - 新 mod 初始权重 1.0
         # - 被选中展示后，权重衰减（默认 *0.85）
         # - 未展示时，每次运行权重恢复（默认 +0.05）
@@ -494,11 +496,72 @@ def collect_all(cfg, sort_mode):
             else:
                 m["show_weight"] = 1.0
         
-        # 按 score * weight 排序取前 N
-        def weighted_score(m):
-            return (m.get("rating", 0) + m.get("endorsements", 0)) * m.get("show_weight", 1.0)
-        filtered.sort(key=weighted_score, reverse=True)
-        top_mods = filtered[:cfg["settings"].get("mods_per_game", 20)]
+        # 计算原始评分（rating + endorsements）
+        raw_scores = []
+        for m in filtered:
+            s = m.get("rating", 0) + m.get("endorsements", 0)
+            m["_raw_score"] = s
+            raw_scores.append(s)
+        
+        # Log 归一化：将评分压缩到 0-100
+        if raw_scores:
+            log_scores = [math.log(s + 1) for s in raw_scores]
+            ls_min = min(log_scores)
+            ls_max = max(log_scores)
+            ls_range = ls_max - ls_min
+            if ls_range > 0:
+                for m, ls in zip(filtered, log_scores):
+                    m["_norm_score"] = (ls - ls_min) / ls_range * 100
+            else:
+                for m in filtered:
+                    m["_norm_score"] = 50.0
+        
+        # 按 归一化分 * weight 排序取前 N
+        def weighted_norm_score(m):
+            return m.get("_norm_score", 0) * m.get("show_weight", 1.0)
+        filtered.sort(key=weighted_norm_score, reverse=True)
+        n_mods = len(filtered)
+        n_slots = cfg["settings"].get("mods_per_game", 20)
+        
+        # 分层保障：确保低评分 mod 也有展示机会
+        # 将 mod 分为 高(40%) / 中(30%) / 低(30%) 三档
+        # 按 60% / 25% / 15% 的比例分配展示名额
+        top_end = int(n_mods * 0.4)
+        mid_end = int(n_mods * 0.7)
+        
+        tier_top = filtered[:top_end]
+        tier_mid = filtered[top_end:mid_end]
+        tier_low = filtered[mid_end:]
+        
+        # 各档展示名额（向下取整，剩余的给高分档）
+        n_top_slots = max(int(n_slots * 0.6), 1)
+        n_mid_slots = max(int(n_slots * 0.25), 1)
+        n_low_slots = max(n_slots - n_top_slots - n_mid_slots, 1)
+        
+        # 如果某档 mod 不足，将名额分配给下一档
+        if len(tier_low) < n_low_slots:
+            n_top_slots += n_low_slots - len(tier_low)
+            n_low_slots = len(tier_low)
+        if len(tier_mid) < n_mid_slots:
+            n_top_slots += n_mid_slots - len(tier_mid)
+            n_mid_slots = len(tier_mid)
+        
+        # 每档内按加权分排序
+        # 低分档加入随机扰动（±10%），让低评分 mod 有随机展示机会
+        import random
+        random.seed(hash(f"{game_id}_{run}") & 0xFFFFFFFF)  # 可复现的随机性
+        
+        def tier_sort_key(m, add_noise=False):
+            base = weighted_norm_score(m)
+            if add_noise:
+                noise = random.uniform(-0.1, 0.1)
+                return base * (1 + noise)
+            return base
+        
+        top_mods = []
+        top_mods += sorted(tier_top, key=lambda m: tier_sort_key(m), reverse=True)[:n_top_slots]
+        top_mods += sorted(tier_mid, key=lambda m: tier_sort_key(m), reverse=True)[:n_mid_slots]
+        top_mods += sorted(tier_low, key=lambda m: tier_sort_key(m, add_noise=True), reverse=True)[:n_low_slots]
         
         # 更新 DB 中权重：展示的衰减，未展示的恢复
         filtered_ids = set(mod_id(m) for m in filtered)
